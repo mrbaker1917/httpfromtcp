@@ -1,12 +1,11 @@
 package main
 
 import (
-	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net"
-	"strings"
+
+	"github.com/mrbaker1917/httpfromtcp/internal/request"
 )
 
 const port = ":42069"
@@ -27,43 +26,10 @@ func main() {
 		}
 		fmt.Printf("Accepted connection from: %s\n", conn.RemoteAddr())
 
-		ch := getLinesChannel(conn)
-		for line := range ch {
-			fmt.Println(line)
+		req, err := request.RequestFromReader(conn)
+		if err != nil {
+			fmt.Printf("Error occurred in requesting data: %v\n", err)
 		}
-		fmt.Printf("Connection to %s closed.\n", conn.RemoteAddr())
+		fmt.Printf("Request line:\n- Method: %s\n- Target: %s\n- Version: %s\n", req.RequestLine.Method, req.RequestLine.RequestTarget, req.RequestLine.HttpVersion)
 	}
-}
-
-func getLinesChannel(f io.ReadCloser) <-chan string {
-
-	ch := make(chan string)
-	go func() {
-		defer f.Close()
-		defer close(ch)
-		currentLineContents := ""
-		for {
-			buffer := make([]byte, 8)
-			n, err := f.Read(buffer)
-			if err != nil {
-				if currentLineContents != "" {
-					ch <- currentLineContents
-				}
-				if errors.Is(err, io.EOF) {
-					break
-				}
-				fmt.Printf("error: %s\n", err.Error())
-				return
-			}
-			str := string(buffer[:n])
-			parts := strings.Split(str, "\n")
-			for i := 0; i < len(parts)-1; i++ {
-				ch <- currentLineContents + parts[i]
-				currentLineContents = ""
-
-			}
-			currentLineContents += parts[len(parts)-1]
-		}
-	}()
-	return ch
 }
