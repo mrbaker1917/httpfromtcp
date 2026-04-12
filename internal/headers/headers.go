@@ -11,7 +11,7 @@ type Headers map[string]string
 const crlf = "\r\n"
 
 func NewHeaders() Headers {
-	return Headers{}
+	return map[string]string{}
 }
 
 func (h Headers) Parse(data []byte) (n int, done bool, err error) {
@@ -39,6 +39,9 @@ func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 	val = strings.TrimSpace(val)
 	key = strings.TrimSpace(key)
 	key = strings.ToLower(key)
+	if strings.Contains(key, " ") {
+		return 0, false, errors.New("Malformed key; no spaces in key")
+	}
 
 	if _, ok := h[key]; ok {
 		preval := h[key]
