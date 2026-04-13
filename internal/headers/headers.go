@@ -14,6 +14,14 @@ func NewHeaders() Headers {
 	return map[string]string{}
 }
 
+func (h Headers) Get(key string) (string, bool) {
+	key = strings.ToLower(key)
+	if v, ok := h[key]; ok {
+		return v, true
+	}
+	return "", false
+}
+
 func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 	idx := bytes.Index(data, []byte(crlf))
 	if idx == -1 {
