@@ -1,27 +1,54 @@
 package server
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"strconv"
 	"sync/atomic"
 
+	"github.com/mrbaker1917/httpfromtcp/internal/request"
 	"github.com/mrbaker1917/httpfromtcp/internal/response"
 )
 
 type Server struct {
 	closed   atomic.Bool
 	listener net.Listener
+	handler  Handler
 }
 
-func Serve(port int) (*Server, error) {
+type HandlerError struct {
+	StatusCode response.StatusCode
+	Message    string
+}
+
+type Handler func(w io.Writer, req *request.Request) *HandlerError
+
+func (he *HandlerError) HandleError(w io.Writer) error {
+	err := response.WriteStatusLine(w, he.StatusCode)
+	if err != nil {
+		return err
+	}
+	h := response.GetDefaultHeaders(len(he.Message))
+	err = response.WriteHeaders(w, h)
+	if err != nil {
+		return err
+	}
+	_, err = w.Write([]byte(he.Message))
+	return err
+}
+
+func Serve(port int, handler Handler) (*Server, error) {
 	ln, err := net.Listen("tcp", ":"+strconv.Itoa(port))
+
 	if err != nil {
 		return nil, fmt.Errorf("Error in listening to TCP traffic: %s\n", err.Error())
 	}
 	s := &Server{
 		listener: ln,
+		handler:  handler,
 	}
 	go s.listen()
 
@@ -53,13 +80,32 @@ func (s *Server) listen() {
 
 func (s *Server) handle(conn net.Conn) {
 	defer conn.Close()
-	err := response.WriteStatusLine(conn, response.OK)
+	req, err := request.RequestFromReader(conn)
+	if err != nil {
+		hErr := &HandlerError{
+			StatusCode: response.BadRequest,
+			Message:    "Bad request\n",
+		}
+		hErr.HandleError(conn)
+		return
+	}
+	b := bytes.Buffer{}
+	hErr := s.handler(&b, req)
+	if hErr != nil {
+		hErr.HandleError(conn)
+		return
+	}
+	h := response.GetDefaultHeaders(b.Len())
+	err = response.WriteStatusLine(conn, response.OK)
 	if err != nil {
 		fmt.Printf("Error in writing the status line: %v", err)
 	}
-	h := response.GetDefaultHeaders(0)
 	err = response.WriteHeaders(conn, h)
 	if err != nil {
 		fmt.Printf("Error in writing headers: %v", err)
+	}
+	_, err = conn.Write(b.Bytes())
+	if err != nil {
+		fmt.Printf("Error in writing response body: %v", err)
 	}
 }
