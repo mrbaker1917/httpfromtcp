@@ -15,7 +15,28 @@ const (
 	ServerError StatusCode = 500
 )
 
-func WriteStatusLine(w io.Writer, statusCode StatusCode) error {
+type WriterState int
+
+const (
+	writingStatusLine WriterState = iota
+	writingHeaders
+	writingBody
+	done
+)
+
+type Writer struct {
+	writerState WriterState
+	writer      io.Writer
+}
+
+func NewWriter(w io.Writer) *Writer {
+	return &Writer{writer: w}
+}
+
+func (w *Writer) WriteStatusLine(statusCode StatusCode) error {
+	if w.writerState != writingStatusLine {
+		return fmt.Errorf("Writing status line should be first.")
+	}
 	statusLine := ""
 	switch statusCode {
 	case 200:
@@ -27,7 +48,8 @@ func WriteStatusLine(w io.Writer, statusCode StatusCode) error {
 	default:
 		statusLine = fmt.Sprintf("HTTP/1.1 %d \r\n", statusCode)
 	}
-	_, err := w.Write([]byte(statusLine))
+	_, err := w.writer.Write([]byte(statusLine))
+	w.writerState = writingHeaders
 
 	return err
 }
@@ -40,14 +62,31 @@ func GetDefaultHeaders(contentLen int) headers.Headers {
 	return h
 }
 
-func WriteHeaders(w io.Writer, headers headers.Headers) error {
+func (w *Writer) WriteHeaders(headers headers.Headers) error {
+	if w.writerState != writingHeaders {
+		return fmt.Errorf("Writing headers should be second.")
+	}
 	for k, v := range headers {
 		headerLine := fmt.Sprintf("%s: %s\r\n", k, v)
-		_, err := w.Write([]byte(headerLine))
+		_, err := w.writer.Write([]byte(headerLine))
 		if err != nil {
 			return err
 		}
 	}
-	_, err := w.Write([]byte("\r\n"))
+	_, err := w.writer.Write([]byte("\r\n"))
+	w.writerState = writingBody
 	return err
+}
+
+func (w *Writer) WriteBody(p []byte) (int, error) {
+	if w.writerState != writingBody {
+		return 0, fmt.Errorf("Write statusLine and headers first")
+	}
+
+	n, err := w.writer.Write(p)
+	if err != nil {
+		return 0, fmt.Errorf("Error in writing body: %v.", err)
+	}
+	w.writerState = done
+	return n, nil
 }

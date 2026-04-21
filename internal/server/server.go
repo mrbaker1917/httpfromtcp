@@ -1,12 +1,9 @@
 package server
 
 import (
-	"bytes"
 	"fmt"
-	"io"
 	"log"
 	"net"
-	"strconv"
 	"sync/atomic"
 
 	"github.com/mrbaker1917/httpfromtcp/internal/request"
@@ -24,25 +21,10 @@ type HandlerError struct {
 	Message    string
 }
 
-type Handler func(w io.Writer, req *request.Request) *HandlerError
-
-func (he *HandlerError) HandleError(w io.Writer) error {
-	err := response.WriteStatusLine(w, he.StatusCode)
-	if err != nil {
-		return err
-	}
-	h := response.GetDefaultHeaders(len(he.Message))
-	err = response.WriteHeaders(w, h)
-	if err != nil {
-		return err
-	}
-	_, err = w.Write([]byte(he.Message))
-	return err
-}
+type Handler func(w *response.Writer, req *request.Request)
 
 func Serve(port int, handler Handler) (*Server, error) {
-	ln, err := net.Listen("tcp", ":"+strconv.Itoa(port))
-
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		return nil, fmt.Errorf("Error in listening to TCP traffic: %s\n", err.Error())
 	}
@@ -65,13 +47,13 @@ func (s *Server) Close() error {
 }
 
 func (s *Server) listen() {
-	for !s.closed.Load() {
+	for {
 		conn, err := s.listener.Accept()
 		if err != nil {
 			if s.closed.Load() {
 				return
 			}
-			log.Printf("Error getting connection: %v", err)
+			log.Printf("Error accepting connection: %v", err)
 			continue
 		}
 		go s.handle(conn)
@@ -80,32 +62,24 @@ func (s *Server) listen() {
 
 func (s *Server) handle(conn net.Conn) {
 	defer conn.Close()
+	w := response.NewWriter(conn)
 	req, err := request.RequestFromReader(conn)
 	if err != nil {
-		hErr := &HandlerError{
-			StatusCode: response.BadRequest,
-			Message:    "Bad request\n",
+		log.Printf("Error in reading request from reader: %v", err)
+		err = w.WriteStatusLine(response.BadRequest)
+		if err != nil {
+			log.Printf("Error writing status line: %v", err)
 		}
-		hErr.HandleError(conn)
+		h := response.GetDefaultHeaders(23)
+		err = w.WriteHeaders(h)
+		if err != nil {
+			log.Printf("Error writing headers: %v", err)
+		}
+		_, err = w.WriteBody([]byte("Could not parse request"))
+		if err != nil {
+			log.Printf("Error writing body: %v", err)
+		}
 		return
 	}
-	b := bytes.Buffer{}
-	hErr := s.handler(&b, req)
-	if hErr != nil {
-		hErr.HandleError(conn)
-		return
-	}
-	h := response.GetDefaultHeaders(b.Len())
-	err = response.WriteStatusLine(conn, response.OK)
-	if err != nil {
-		fmt.Printf("Error in writing the status line: %v", err)
-	}
-	err = response.WriteHeaders(conn, h)
-	if err != nil {
-		fmt.Printf("Error in writing headers: %v", err)
-	}
-	_, err = conn.Write(b.Bytes())
-	if err != nil {
-		fmt.Printf("Error in writing response body: %v", err)
-	}
+	s.handler(w, req)
 }
