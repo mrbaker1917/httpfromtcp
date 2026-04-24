@@ -90,3 +90,15 @@ func (w *Writer) WriteBody(p []byte) (int, error) {
 	w.writerState = done
 	return n, nil
 }
+
+func (w *Writer) WriteChunkedBody(p []byte) (int, error) {
+	if w.writerState != writingBody {
+		return 0, fmt.Errorf("Write statusLine and headers first")
+	}
+}
+
+func (w *Writer) WriteChunkedBodyDone() (int, error) {
+	if w.writerState != writingBody {
+		return 0, fmt.Errorf("Write statusLine and headers first")
+	}
+}
