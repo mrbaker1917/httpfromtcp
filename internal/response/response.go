@@ -95,10 +95,26 @@ func (w *Writer) WriteChunkedBody(p []byte) (int, error) {
 	if w.writerState != writingBody {
 		return 0, fmt.Errorf("Write statusLine and headers first")
 	}
+	n, err := w.writer.Write([]byte(fmt.Sprintf("%x\r\n", len(p))))
+	if err != nil {
+		return 0, fmt.Errorf("Error in writing body: %v.", err)
+	}
+	n2, err := w.writer.Write(p)
+	if err != nil {
+		return 0, fmt.Errorf("Error in writing body: %v.", err)
+	}
+	n3, err := w.writer.Write([]byte("\r\n"))
+	if err != nil {
+		return 0, fmt.Errorf("Error in writing body: %v.", err)
+	}
+	return n + n2 + n3, nil
 }
 
 func (w *Writer) WriteChunkedBodyDone() (int, error) {
-	if w.writerState != writingBody {
-		return 0, fmt.Errorf("Write statusLine and headers first")
+	n, err := w.writer.Write([]byte("0\r\n\r\n"))
+	if err != nil {
+		return 0, fmt.Errorf("Error in writing body done: %v.", err)
 	}
+	w.writerState = done
+	return n, nil
 }

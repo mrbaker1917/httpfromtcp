@@ -1,9 +1,12 @@
 package main
 
 import (
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/mrbaker1917/httpfromtcp/internal/request"
@@ -28,6 +31,10 @@ func main() {
 }
 
 func handler(w *response.Writer, req *request.Request) {
+	if strings.HasPrefix(req.RequestLine.RequestTarget, "/httpbin") {
+		proxyHandler(w, req)
+		return
+	}
 	switch req.RequestLine.RequestTarget {
 	case "/yourproblem":
 		body := []byte("<html><head><title>400 Bad Request</title></head><body><h1>Bad Request</h1><p>Your request honestly kinda sucked.</p></body></html>")
@@ -50,5 +57,47 @@ func handler(w *response.Writer, req *request.Request) {
 		h["Content-Type"] = "text/html"
 		w.WriteHeaders(h)
 		w.WriteBody(body)
+	}
+}
+
+func proxyHandler(w *response.Writer, req *request.Request) {
+	s := strings.TrimPrefix(req.RequestLine.RequestTarget, "/httpbin/")
+	reqLine := "https://httpbin.org/" + s
+	resp, err := http.Get(reqLine)
+	if err != nil {
+		log.Printf("Error in getting response from httpbin: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	err = w.WriteStatusLine(response.OK)
+	if err != nil {
+		log.Printf("Error in writing status line: %v", err)
+		return
+	}
+	h := response.GetDefaultHeaders(0)
+	delete(h, "Content-Length")
+	h["Transfer-Encoding"] = "chunked"
+	err = w.WriteHeaders(h)
+	if err != nil {
+		log.Printf("Error in writing headers: %v", err)
+		return
+	}
+	buf := make([]byte, 1024)
+	for {
+		n, err := resp.Body.Read(buf)
+		if n > 0 {
+			w.WriteChunkedBody(buf[:n])
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			log.Printf("Error in writing reading response: %v", err)
+			break
+		}
+	}
+	_, err = w.WriteChunkedBodyDone()
+	if err != nil {
+		log.Printf("Error in ending reading of chunk body: %v", err)
 	}
 }
