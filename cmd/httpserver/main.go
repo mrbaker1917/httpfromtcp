@@ -53,6 +53,17 @@ func handler(w *response.Writer, req *request.Request) {
 		h["Content-Type"] = "text/html"
 		w.WriteHeaders(h)
 		w.WriteBody(body)
+	case "/video":
+		bd, err := os.ReadFile("assets/vim.mp4")
+		if err != nil {
+			log.Printf("Error in reading video file: %v", err)
+			return
+		}
+		w.WriteStatusLine(response.OK)
+		h := response.GetDefaultHeaders(len(bd))
+		h["Content-Type"] = "video/mp4"
+		w.WriteHeaders(h)
+		w.WriteBody(bd)
 	default:
 		body := []byte("<html><head><title>200 OK</title></head><body><h1>Success!</h1><p>Your request was an absolute banger.</p></body></html>")
 		w.WriteStatusLine(response.OK)
