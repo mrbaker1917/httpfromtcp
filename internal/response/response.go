@@ -78,6 +78,28 @@ func (w *Writer) WriteHeaders(headers headers.Headers) error {
 	return err
 }
 
+func (w *Writer) WriteTrailers(h headers.Headers) error {
+
+	for k, v := range h {
+		_, err := w.writer.Write([]byte(fmt.Sprintf("%s: %s\r\n", k, v)))
+		if err != nil {
+			return err
+		}
+	}
+	_, err := w.writer.Write([]byte("\r\n"))
+	w.writerState = done
+	return err
+}
+
+func (w *Writer) WriteChunkedBodyDone() (int, error) {
+	n, err := w.writer.Write([]byte("0\r\n"))
+	if err != nil {
+		return 0, fmt.Errorf("Error in writing body done: %v.", err)
+	}
+	w.writerState = done
+	return n, nil
+}
+
 func (w *Writer) WriteBody(p []byte) (int, error) {
 	if w.writerState != writingBody {
 		return 0, fmt.Errorf("Write statusLine and headers first")
@@ -108,13 +130,4 @@ func (w *Writer) WriteChunkedBody(p []byte) (int, error) {
 		return 0, fmt.Errorf("Error in writing body: %v.", err)
 	}
 	return n + n2 + n3, nil
-}
-
-func (w *Writer) WriteChunkedBodyDone() (int, error) {
-	n, err := w.writer.Write([]byte("0\r\n\r\n"))
-	if err != nil {
-		return 0, fmt.Errorf("Error in writing body done: %v.", err)
-	}
-	w.writerState = done
-	return n, nil
 }

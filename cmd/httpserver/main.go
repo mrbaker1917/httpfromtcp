@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -9,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/mrbaker1917/httpfromtcp/internal/headers"
 	"github.com/mrbaker1917/httpfromtcp/internal/request"
 	"github.com/mrbaker1917/httpfromtcp/internal/response"
 	"github.com/mrbaker1917/httpfromtcp/internal/server"
@@ -77,16 +80,19 @@ func proxyHandler(w *response.Writer, req *request.Request) {
 	h := response.GetDefaultHeaders(0)
 	delete(h, "Content-Length")
 	h["Transfer-Encoding"] = "chunked"
+	h["Trailer"] = "X-Content-SHA256, X-Content-Length"
 	err = w.WriteHeaders(h)
 	if err != nil {
 		log.Printf("Error in writing headers: %v", err)
 		return
 	}
 	buf := make([]byte, 1024)
+	var fullBody []byte
 	for {
 		n, err := resp.Body.Read(buf)
 		if n > 0 {
 			w.WriteChunkedBody(buf[:n])
+			fullBody = append(fullBody, buf[:n]...)
 		}
 		if err == io.EOF {
 			break
@@ -99,5 +105,15 @@ func proxyHandler(w *response.Writer, req *request.Request) {
 	_, err = w.WriteChunkedBodyDone()
 	if err != nil {
 		log.Printf("Error in ending reading of chunk body: %v", err)
+	}
+
+	hsh := sha256.Sum256(fullBody)
+	bodLength := len(fullBody)
+	heads := headers.NewHeaders()
+	heads["X-Content-SHA256"] = fmt.Sprintf("%x", hsh)
+	heads["X-Content-Length"] = fmt.Sprintf("%d", bodLength)
+	err = w.WriteTrailers(heads)
+	if err != nil {
+		log.Printf("Error in writing trailers: %v", err)
 	}
 }
